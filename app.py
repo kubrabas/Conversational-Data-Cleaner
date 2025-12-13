@@ -8,8 +8,7 @@ from src.data_core.adjustments import TableRefiner
 from src.intelligence.header import HeaderDetector
 from src.intelligence.columns import ConsumptionColumnDetector, TimeColumnDetector
 
-# NEW: date column normalizer preference
-from src.intelligence.columns.time import Preference_Date_And_Hour  # <- adjust if your path differs
+from src.intelligence.columns.time import Preference_Date_And_Hour  # <- adjust if needed
 
 
 # ==============================================================================
@@ -42,41 +41,30 @@ def log(msg: str):
 # Core pipeline (automatic)
 # ==============================================================================
 def run_automatic_pipeline(file_path: str) -> dict:
-    """
-    Runs the preprocessing pipeline automatically up to time-column detection.
-    Returns dict with processed df and detected columns.
-    """
-    # 1) Read
     reader = DataReader(file_path)
     df_processed = reader.read_data()
 
-    # Prefer reader.table if the DataReader stores the active table there
     table = getattr(reader, "table", None)
     if table is None:
         table = df_processed
 
-    # 2) Clean
     refiner = TableRefiner(table)
     refiner.clean_table()
     table = refiner.table
 
-    # 3) Header detection/apply
     header_det = HeaderDetector(table)
     header_det.apply_header()
     table = header_det.table
 
-    # 4) Clean again after header applied
     refiner = TableRefiner(table)
     refiner.clean_table()
     table = refiner.table
 
-    # 5) Consumption detection + convert to kWh
     cons_det = ConsumptionColumnDetector(table)
-    consumption_col = cons_det.detect_consumption_column()  # str column name
-    _cons_kwh_series = cons_det.to_kwh()  # series returned; also updates table inside detector
+    consumption_col = cons_det.detect_consumption_column()
+    _cons_kwh_series = cons_det.to_kwh()
     final_table = cons_det.table
 
-    # 6) Time candidates (name-based for now)
     time_det = TimeColumnDetector(final_table)
     time_candidates = time_det.detect_time_columns()
 
@@ -104,7 +92,6 @@ if st.session_state.step == 0:
 
     if uploaded_file:
         try:
-            # Save to temp file
             suffix = os.path.splitext(uploaded_file.name)[-1].lower() or ".xlsx"
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(uploaded_file.getbuffer())
@@ -112,14 +99,12 @@ if st.session_state.step == 0:
 
             log(f"Uploaded file saved to temp: {temp_path}")
 
-            # Run pipeline automatically
             results = run_automatic_pipeline(temp_path)
 
             st.session_state.df_processed = results["df_processed"]
             st.session_state.consumption_col = results["consumption_col"]
             st.session_state.time_candidates = results["time_candidates"]
 
-            # Reset selections for a new file
             st.session_state.time_selected = []
             st.session_state.time_pair_mode = None
             st.session_state.time_from_col = None
@@ -127,7 +112,6 @@ if st.session_state.step == 0:
             st.session_state.date_col = None
             st.session_state.time_col = None
 
-            # Cleanup temp file
             os.remove(temp_path)
 
             st.session_state.step = 1
@@ -168,7 +152,6 @@ if st.session_state.step == 1:
         st.write("We found the following time-related columns in your uploaded file:")
         st.code("\n".join([f"- {c}" for c in candidates]), language="text")
 
-        # Quick actions
         a, b, c = st.columns(3)
         with a:
             if st.button("Select all time columns"):
@@ -197,7 +180,6 @@ if st.session_state.step == 1:
         else:
             st.info("No time columns selected yet.")
 
-        # If exactly two columns are selected, ask how to interpret them
         if len(st.session_state.time_selected) == 2:
             c1, c2 = st.session_state.time_selected
 
@@ -219,7 +201,6 @@ if st.session_state.step == 1:
                 index=1,
             )
 
-            # If from/to, ask which is which
             if st.session_state.time_pair_mode.startswith("These two columns represent a start and end time"):
                 st.session_state.time_from_col = st.selectbox(
                     "Start time column (from):",
@@ -229,7 +210,6 @@ if st.session_state.step == 1:
                 st.session_state.time_to_col = c2 if st.session_state.time_from_col == c1 else c1
                 st.info(f"End time column (to): **{st.session_state.time_to_col}**")
 
-            # If date+time, ask which is date part
             if st.session_state.time_pair_mode.startswith("These two columns together form a single timestamp"):
                 st.session_state.date_col = st.selectbox(
                     "Which one is the date part?",
@@ -239,30 +219,44 @@ if st.session_state.step == 1:
                 st.session_state.time_col = c2 if st.session_state.date_col == c1 else c1
                 st.info(f"Time part column: **{st.session_state.time_col}**")
 
-                # NEW: normalize/clean the selected DATE column immediately
+                # Normalize DATE + HOUR and create "moment"
                 try:
                     date_col = st.session_state.date_col
-                    before_dtype = str(df[date_col].dtype)
+                    hour_col = st.session_state.time_col
 
-                    pref = Preference_Date_And_Hour(df, date_col)
-                    _kind = pref.detect_date_dtype()
+                    before_date_dtype = str(df[date_col].dtype)
+                    before_hour_dtype = str(df[hour_col].dtype)
+
+                    pref = Preference_Date_And_Hour(df, date_col=date_col, hour_col=hour_col)
+
+                    pref.detect_date_dtype()
+                    pref.normalize_hour_column()
+                    moment_rate = pref.create_moment_column(out_col="moment")
 
                     st.session_state.df_processed = pref.table
                     df = st.session_state.df_processed
 
-                    after_dtype = str(df[date_col].dtype)
+                    after_date_dtype = str(df[date_col].dtype)
+                    after_hour_dtype = str(df[hour_col].dtype)
+                    moment_dtype = str(df["moment"].dtype) if "moment" in df.columns else "N/A"
 
                     st.success(
-                        f"✅ I normalized your date column **{date_col}** "
-                        f"(dtype: `{before_dtype}` → `{after_dtype}`)."
+                        f"✅ Date column **{date_col}** normalized "
+                        f"(dtype: `{before_date_dtype}` → `{after_date_dtype}`)."
+                    )
+                    st.success(
+                        f"✅ Hour column **{hour_col}** normalized to `HH:MM:SS` "
+                        f"(dtype: `{before_hour_dtype}` → `{after_hour_dtype}`)."
+                    )
+                    st.success(
+                        f"✅ Created **moment** column (dtype: `{moment_dtype}`), parse success rate: **{moment_rate:.2%}**"
                     )
 
-                    # ✅ CHANGE: show the head of the updated table instead of printing a list
                     st.caption("Preview after normalization (first 10 rows):")
                     st.dataframe(df.head(10), use_container_width=True)
 
                 except Exception as e:
-                    st.error(f"❌ I couldn't normalize the selected date column '{st.session_state.date_col}': {e}")
+                    st.error(f"❌ I couldn't normalize/merge date+hour: {e}")
 
     st.write("---")
 
