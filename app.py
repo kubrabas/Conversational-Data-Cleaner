@@ -233,26 +233,33 @@ if st.session_state.step == 1:
                     pref.normalize_hour_column()
                     moment_rate = pref.create_moment_column(out_col="moment")
 
+                    # ✅ keep only moment + consumption_kwh (method lives in TableRefiner)
+                    refiner2 = TableRefiner(pref.table)
+                    refiner2.keep_only_moment_and_consumption(
+                        moment_col="moment",
+                        consumption_col="consumption_kwh",
+                    )
+                    pref.table = refiner2.table
+
                     st.session_state.df_processed = pref.table
                     df = st.session_state.df_processed
 
-                    after_date_dtype = str(df[date_col].dtype)
-                    after_hour_dtype = str(df[hour_col].dtype)
                     moment_dtype = str(df["moment"].dtype) if "moment" in df.columns else "N/A"
 
                     st.success(
                         f"✅ Date column **{date_col}** normalized "
-                        f"(dtype: `{before_date_dtype}` → `{after_date_dtype}`)."
+                        f"(dtype: `{before_date_dtype}` → `string`)."
                     )
                     st.success(
                         f"✅ Hour column **{hour_col}** normalized to `HH:MM:SS` "
-                        f"(dtype: `{before_hour_dtype}` → `{after_hour_dtype}`)."
+                        f"(dtype: `{before_hour_dtype}` → `string`)."
                     )
                     st.success(
                         f"✅ Created **moment** column (dtype: `{moment_dtype}`), parse success rate: **{moment_rate:.2%}**"
                     )
+                    st.success("✅ Dropped all other columns (kept only `moment` and `consumption_kwh`).")
 
-                    st.caption("Preview after normalization (first 10 rows):")
+                    st.caption("Final preview (first 10 rows):")
                     st.dataframe(df.head(10), use_container_width=True)
 
                 except Exception as e:
