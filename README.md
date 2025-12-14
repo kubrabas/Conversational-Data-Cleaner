@@ -1,4 +1,4 @@
-# CConsumption-Table-Refiner
+# Consumption-Table-Refiner
 
 ## Install & Run locally
 
