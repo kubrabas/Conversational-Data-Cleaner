@@ -3,19 +3,20 @@ import pandas as pd
 
 class TableRefiner:
     def __init__(self, table: pd.DataFrame):
-        """
-        Initialize the TableRefiner with a pandas DataFrame.
-        """
         self.table = table
         self.columns = list(table.columns)
 
     def clean_table(self) -> pd.DataFrame:
         """
-        Remove columns and rows that are entirely empty (NaN),
-        and also trim trailing fully-empty rows at the bottom.
+        Remove columns/rows that are entirely empty (NaN),
+        also treat empty/whitespace-only strings as empty,
+        and trim trailing empty rows at the bottom.
         """
         # Drop columns that are completely NaN
         self.table = self.table.dropna(axis=1, how="all")
+
+        # ✅ Drop columns that are empty strings / whitespace-only in every cell
+        self.drop_empty_columns()
 
         # Drop rows that are completely NaN
         self.table = self.table.dropna(axis=0, how="all")
@@ -32,10 +33,6 @@ class TableRefiner:
         moment_col: str = "moment",
         consumption_col: str = "consumption_kwh",
     ) -> pd.DataFrame:
-        """
-        Keep only `moment_col` and `consumption_col` in the table.
-        Drops all other columns (in-place) and updates `self.columns`.
-        """
         missing = [c for c in (moment_col, consumption_col) if c not in self.table.columns]
         if missing:
             raise KeyError(f"Missing required columns: {missing}")
@@ -45,12 +42,6 @@ class TableRefiner:
         return self.table
 
     def drop_trailing_empty_rows(self) -> pd.DataFrame:
-        """
-        Drop rows at the very bottom of the table that are completely empty.
-
-        "Empty" means: NaN OR empty/whitespace-only strings in every cell.
-        Only trims trailing empty rows; does not touch empty rows in the middle.
-        """
         if self.table.empty:
             return self.table
 
@@ -72,6 +63,29 @@ class TableRefiner:
         else:
             last_keep_pos = non_empty_positions[-1]
             self.table = self.table.iloc[: last_keep_pos + 1].copy()
+
+        self.columns = list(self.table.columns)
+        return self.table
+
+    def drop_empty_columns(self) -> pd.DataFrame:
+        """
+        Drop columns that are completely empty.
+
+        "Empty" means: NaN OR empty/whitespace-only strings in every cell.
+        """
+        if self.table.empty:
+            return self.table
+
+        def _cell_is_empty(x) -> bool:
+            if pd.isna(x):
+                return True
+            if isinstance(x, str) and x.strip() == "":
+                return True
+            return False
+
+        empty_col_mask = self.table.applymap(_cell_is_empty).all(axis=0)
+        if empty_col_mask.any():
+            self.table = self.table.loc[:, ~empty_col_mask].copy()
 
         self.columns = list(self.table.columns)
         return self.table

@@ -225,8 +225,9 @@ if st.session_state.step == 1:
                         moment_col="moment",
                         consumption_col="consumption_kwh",
                     )
-                    # ✅ NEW: trim trailing empty rows
+                    # ✅ trim trailing empty rows + drop empty columns
                     refiner2.drop_trailing_empty_rows()
+                    refiner2.drop_empty_columns()
                     pref.table = refiner2.table
 
                     st.session_state.df_processed = pref.table
@@ -305,8 +306,9 @@ if st.session_state.step == 1:
                         moment_col="moment",
                         consumption_col="consumption_kwh",
                     )
-                    # ✅ NEW: trim trailing empty rows
+                    # ✅ trim trailing empty rows + drop empty columns
                     refiner2.drop_trailing_empty_rows()
+                    refiner2.drop_empty_columns()
                     pref.table = refiner2.table
 
                     st.session_state.df_processed = pref.table
@@ -341,10 +343,12 @@ if st.session_state.step == 1:
     )
 
     if final_ready:
-        # ✅ NEW: ensure trailing empty rows removed at the very end too
+        # ✅ ensure trailing empty rows removed at the very end too
+        # ✅ and drop empty columns before saving
         try:
             ref_final = TableRefiner(df)
             ref_final.drop_trailing_empty_rows()
+            ref_final.drop_empty_columns()
             df = ref_final.table
             st.session_state.df_processed = df
         except Exception:
@@ -374,7 +378,6 @@ if st.session_state.step == 1:
 
         save_disabled = (st.session_state.save_name.strip() == "")
 
-        # ✅ NEW: two save buttons
         s1, s2 = st.columns(2)
         with s1:
             if st.button("Save as Excel (.xlsx)", disabled=save_disabled):
