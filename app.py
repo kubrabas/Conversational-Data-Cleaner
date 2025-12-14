@@ -304,11 +304,9 @@ if st.session_state.step == 1:
             else:
                 if single_mode.startswith("This one column contains a full timestamp"):
                     try:
-                        before_dtype = str(df[single_col].dtype)
-
                         pref = Preference_SingleDateTime(df, datetime_col=single_col)
-                        extract_rate = pref.extract_date_and_hour()
-                        moment_rate = pref.create_moment_column()
+                        pref.extract_date_and_hour()
+                        pref.create_moment_column()
 
                         refiner2 = TableRefiner(pref.table)
                         refiner2.keep_only_moment_and_consumption(
@@ -322,16 +320,8 @@ if st.session_state.step == 1:
                         st.session_state.df_processed = pref.table
                         df = st.session_state.df_processed
 
-                        moment_dtype = str(df["moment"].dtype) if "moment" in df.columns else "N/A"
-
-                        st.success(
-                            f"✅ Parsed single column **{single_col}** (dtype: `{before_dtype}`) into `moment`."
-                        )
-                        st.success(f"✅ Extract success rate (date+hour): **{extract_rate:.2%}**")
-                        st.success(
-                            f"✅ Created **moment** (dtype: `{moment_dtype}`), parse success rate: **{moment_rate:.2%}**"
-                        )
-                        st.success("✅ Dropped all other columns (kept only `moment` and `consumption_kwh`).")
+                        # ✅ Minimal messaging only
+                        st.success("✅ Success! Your final table is ready.")
 
                     except Exception as e:
                         st.error(f"❌ I couldn't normalize the single datetime column: {e}")
@@ -433,13 +423,10 @@ if st.session_state.step == 1:
                     st.warning("Confirm date/hour to proceed with merging & parsing.")
                 else:
                     try:
-                        before_date_dtype = str(df[date_col].dtype)
-                        before_hour_dtype = str(df[hour_col].dtype)
-
                         pref = Preference_Date_And_Hour(df, date_col=date_col, hour_col=hour_col)
                         pref.detect_date_dtype()
                         pref.normalize_hour_column()
-                        moment_rate = pref.create_moment_column(out_col="moment")
+                        pref.create_moment_column(out_col="moment")
 
                         refiner2 = TableRefiner(pref.table)
                         refiner2.keep_only_moment_and_consumption(
@@ -453,18 +440,8 @@ if st.session_state.step == 1:
                         st.session_state.df_processed = pref.table
                         df = st.session_state.df_processed
 
-                        moment_dtype = str(df["moment"].dtype) if "moment" in df.columns else "N/A"
-
-                        st.success(
-                            f"✅ Date column **{date_col}** normalized (dtype: `{before_date_dtype}` → `string`)."
-                        )
-                        st.success(
-                            f"✅ Hour column **{hour_col}** normalized to `HH:MM:SS` (dtype: `{before_hour_dtype}` → `string`)."
-                        )
-                        st.success(
-                            f"✅ Created **moment** (dtype: `{moment_dtype}`), parse success rate: **{moment_rate:.2%}**"
-                        )
-                        st.success("✅ Dropped all other columns (kept only `moment` and `consumption_kwh`).")
+                        # ✅ Minimal messaging only
+                        st.success("✅ Success! Your final table is ready.")
 
                     except Exception as e:
                         st.error(f"❌ I couldn't normalize/merge date+hour: {e}")
