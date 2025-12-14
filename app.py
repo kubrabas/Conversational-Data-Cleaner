@@ -36,6 +36,24 @@ def init_state():
         "save_name": "",
         "saved_path": None,
         "pipeline_summary": None,  # still stored, but not shown
+
+        # --- UI confirm gates (no dropdowns + must confirm) ---
+        "time_cols_confirmed": False,
+        "time_selected_snapshot": [],
+
+        "single_mode_confirmed": False,
+        "single_mode_value": None,
+
+        "pair_mode_confirmed": False,
+        "pair_mode_value": None,
+
+        "from_to_confirmed": False,
+        "from_col_snapshot": None,
+        "to_col_snapshot": None,
+
+        "date_hour_confirmed": False,
+        "date_col_snapshot": None,
+        "time_col_snapshot": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -152,6 +170,24 @@ if st.session_state.step == 0:
             st.session_state.save_name = ""
             st.session_state.saved_path = None
 
+            # reset confirm gates on new upload
+            st.session_state.time_cols_confirmed = False
+            st.session_state.time_selected_snapshot = []
+
+            st.session_state.single_mode_confirmed = False
+            st.session_state.single_mode_value = None
+
+            st.session_state.pair_mode_confirmed = False
+            st.session_state.pair_mode_value = None
+
+            st.session_state.from_to_confirmed = False
+            st.session_state.from_col_snapshot = None
+            st.session_state.to_col_snapshot = None
+
+            st.session_state.date_hour_confirmed = False
+            st.session_state.date_col_snapshot = None
+            st.session_state.time_col_snapshot = None
+
             os.remove(temp_path)
 
             st.session_state.step = 1
@@ -176,7 +212,6 @@ if st.session_state.step == 1:
 
         st.write("### Last 20 rows:")
         st.dataframe(df_raw.tail(20), use_container_width=True)
-
 
     # ✅ NEW: only consumption info (no processed preview)
     st.write("---")
@@ -204,7 +239,9 @@ if st.session_state.step == 1:
         a, b, c = st.columns(3)
         with a:
             if st.button("Select all time columns"):
-                st.session_state.time_selected = candidates
+                st.session_state.time_selected = list(candidates)
+                st.session_state.time_cols_confirmed = False
+                st.session_state.time_selected_snapshot = []
                 st.rerun()
         with b:
             if st.button("Clear selection"):
@@ -214,15 +251,46 @@ if st.session_state.step == 1:
                 st.session_state.time_to_col = None
                 st.session_state.date_col = None
                 st.session_state.time_col = None
+
+                # reset confirm gates
+                st.session_state.time_cols_confirmed = False
+                st.session_state.time_selected_snapshot = []
+
+                st.session_state.single_mode_confirmed = False
+                st.session_state.single_mode_value = None
+
+                st.session_state.pair_mode_confirmed = False
+                st.session_state.pair_mode_value = None
+
+                st.session_state.from_to_confirmed = False
+                st.session_state.from_col_snapshot = None
+                st.session_state.to_col_snapshot = None
+
+                st.session_state.date_hour_confirmed = False
+                st.session_state.date_col_snapshot = None
+                st.session_state.time_col_snapshot = None
+
                 st.rerun()
         with c:
             st.write(f"Selected: {len(st.session_state.time_selected)}")
 
-        st.session_state.time_selected = st.multiselect(
-            "Which of these columns would you like to use for time?",
-            options=candidates,
-            default=st.session_state.time_selected,
-        )
+        # ----- NO DROPDOWN: checkbox list (multi-select) + confirm gate -----
+        st.markdown("#### Select time-related columns (no dropdown)")
+        new_selected = []
+        for colname in candidates:
+            checked = st.checkbox(
+                colname,
+                value=(colname in st.session_state.time_selected),
+                key=f"timecol_chk_{colname}",
+            )
+            if checked:
+                new_selected.append(colname)
+
+        # if selection changed after confirm, unconfirm automatically
+        if new_selected != st.session_state.time_selected_snapshot:
+            st.session_state.time_cols_confirmed = False
+
+        st.session_state.time_selected = new_selected
 
         df = st.session_state.df_processed
 
@@ -231,8 +299,23 @@ if st.session_state.step == 1:
         else:
             st.info("No time columns selected yet.")
 
-        # single-column flow
-        if len(st.session_state.time_selected) == 1:
+        # confirm gate (time columns)
+        if st.session_state.time_selected:
+            if st.button("✅ Confirm selected time columns"):
+                st.session_state.time_cols_confirmed = True
+                st.session_state.time_selected_snapshot = list(st.session_state.time_selected)
+                st.rerun()
+        else:
+            st.session_state.time_cols_confirmed = False
+            st.session_state.time_selected_snapshot = []
+
+        if st.session_state.time_selected and not st.session_state.time_cols_confirmed:
+            st.warning("Please confirm your time-column selection to continue.")
+
+        # ------------------------------------------------------------------
+        # single-column flow (ONLY after confirming selected time columns)
+        # ------------------------------------------------------------------
+        if st.session_state.time_cols_confirmed and len(st.session_state.time_selected) == 1:
             single_col = st.session_state.time_selected[0]
 
             st.markdown("#### You selected one time-related column")
@@ -250,42 +333,56 @@ if st.session_state.step == 1:
                 index=0,
             )
 
-            if single_mode.startswith("This one column contains a full timestamp"):
-                try:
-                    before_dtype = str(df[single_col].dtype)
+            # selection change -> unconfirm
+            if st.session_state.single_mode_value != single_mode:
+                st.session_state.single_mode_confirmed = False
+            st.session_state.single_mode_value = single_mode
 
-                    pref = Preference_SingleDateTime(df, datetime_col=single_col)
-                    extract_rate = pref.extract_date_and_hour()
-                    moment_rate = pref.create_moment_column()
+            if st.button("✅ Confirm this interpretation (single column)"):
+                st.session_state.single_mode_confirmed = True
+                st.rerun()
 
-                    refiner2 = TableRefiner(pref.table)
-                    refiner2.keep_only_moment_and_consumption(
-                        moment_col="moment",
-                        consumption_col="consumption_kwh",
-                    )
-                    refiner2.drop_trailing_empty_rows()
-                    refiner2.drop_empty_columns()
-                    pref.table = refiner2.table
+            if not st.session_state.single_mode_confirmed:
+                st.warning("Confirm the interpretation to proceed with parsing.")
+            else:
+                if single_mode.startswith("This one column contains a full timestamp"):
+                    try:
+                        before_dtype = str(df[single_col].dtype)
 
-                    st.session_state.df_processed = pref.table
-                    df = st.session_state.df_processed
+                        pref = Preference_SingleDateTime(df, datetime_col=single_col)
+                        extract_rate = pref.extract_date_and_hour()
+                        moment_rate = pref.create_moment_column()
 
-                    moment_dtype = str(df["moment"].dtype) if "moment" in df.columns else "N/A"
+                        refiner2 = TableRefiner(pref.table)
+                        refiner2.keep_only_moment_and_consumption(
+                            moment_col="moment",
+                            consumption_col="consumption_kwh",
+                        )
+                        refiner2.drop_trailing_empty_rows()
+                        refiner2.drop_empty_columns()
+                        pref.table = refiner2.table
 
-                    st.success(
-                        f"✅ Parsed single column **{single_col}** (dtype: `{before_dtype}`) into `moment`."
-                    )
-                    st.success(f"✅ Extract success rate (date+hour): **{extract_rate:.2%}**")
-                    st.success(
-                        f"✅ Created **moment** (dtype: `{moment_dtype}`), parse success rate: **{moment_rate:.2%}**"
-                    )
-                    st.success("✅ Dropped all other columns (kept only `moment` and `consumption_kwh`).")
+                        st.session_state.df_processed = pref.table
+                        df = st.session_state.df_processed
 
-                except Exception as e:
-                    st.error(f"❌ I couldn't normalize the single datetime column: {e}")
+                        moment_dtype = str(df["moment"].dtype) if "moment" in df.columns else "N/A"
 
-        # two-column flow
-        if len(st.session_state.time_selected) == 2:
+                        st.success(
+                            f"✅ Parsed single column **{single_col}** (dtype: `{before_dtype}`) into `moment`."
+                        )
+                        st.success(f"✅ Extract success rate (date+hour): **{extract_rate:.2%}**")
+                        st.success(
+                            f"✅ Created **moment** (dtype: `{moment_dtype}`), parse success rate: **{moment_rate:.2%}**"
+                        )
+                        st.success("✅ Dropped all other columns (kept only `moment` and `consumption_kwh`).")
+
+                    except Exception as e:
+                        st.error(f"❌ I couldn't normalize the single datetime column: {e}")
+
+        # ------------------------------------------------------------------
+        # two-column flow (ONLY after confirming selected time columns)
+        # ------------------------------------------------------------------
+        if st.session_state.time_cols_confirmed and len(st.session_state.time_selected) == 2:
             c1, c2 = st.session_state.time_selected
 
             st.markdown("#### You selected two time-related columns")
@@ -306,63 +403,112 @@ if st.session_state.step == 1:
                 index=1,
             )
 
-            if st.session_state.time_pair_mode.startswith("These two columns represent a start and end time"):
-                st.session_state.time_from_col = st.selectbox(
+            # confirm gate (pair interpretation)
+            if st.session_state.pair_mode_value != st.session_state.time_pair_mode:
+                st.session_state.pair_mode_confirmed = False
+            st.session_state.pair_mode_value = st.session_state.time_pair_mode
+
+            if st.button("✅ Confirm this interpretation (two columns)"):
+                st.session_state.pair_mode_confirmed = True
+                st.rerun()
+
+            if not st.session_state.pair_mode_confirmed:
+                st.warning("Confirm the interpretation to continue.")
+
+            # from-to mapping (NO DROPDOWN, only after pair-mode confirmed)
+            if (
+                st.session_state.pair_mode_confirmed
+                and st.session_state.time_pair_mode.startswith("These two columns represent a start and end time")
+            ):
+                st.session_state.time_from_col = st.radio(
                     "Start time column (from):",
                     options=[c1, c2],
                     index=0,
+                    key="from_col_radio",
                 )
-                st.session_state.time_to_col = c2 if st.session_state.time_from_col == c1 else c1
-                st.info(f"End time column (to): **{st.session_state.time_to_col}**")
+                from_col = st.session_state.time_from_col
+                to_col = c2 if from_col == c1 else c1
+                st.session_state.time_to_col = to_col
+                st.info(f"End time column (to): **{to_col}**")
 
-            if st.session_state.time_pair_mode.startswith("These two columns together form a single timestamp"):
-                st.session_state.date_col = st.selectbox(
+                # confirm gate (from->to)
+                if (from_col != st.session_state.from_col_snapshot) or (to_col != st.session_state.to_col_snapshot):
+                    st.session_state.from_to_confirmed = False
+
+                if st.button("✅ Confirm from → to mapping"):
+                    st.session_state.from_to_confirmed = True
+                    st.session_state.from_col_snapshot = from_col
+                    st.session_state.to_col_snapshot = to_col
+                    st.rerun()
+
+                if not st.session_state.from_to_confirmed:
+                    st.warning("Confirm from/to to proceed.")
+
+            # date+hour mapping (NO DROPDOWN, only after pair-mode confirmed)
+            if (
+                st.session_state.pair_mode_confirmed
+                and st.session_state.time_pair_mode.startswith("These two columns together form a single timestamp")
+            ):
+                st.session_state.date_col = st.radio(
                     "Which one is the date part?",
                     options=[c1, c2],
                     index=0,
+                    key="date_col_radio",
                 )
-                st.session_state.time_col = c2 if st.session_state.date_col == c1 else c1
-                st.info(f"Time part column: **{st.session_state.time_col}**")
+                date_col = st.session_state.date_col
+                hour_col = c2 if date_col == c1 else c1
+                st.session_state.time_col = hour_col
+                st.info(f"Time part column: **{hour_col}**")
 
-                try:
-                    date_col = st.session_state.date_col
-                    hour_col = st.session_state.time_col
+                # confirm gate (date+hour)
+                if (date_col != st.session_state.date_col_snapshot) or (hour_col != st.session_state.time_col_snapshot):
+                    st.session_state.date_hour_confirmed = False
 
-                    before_date_dtype = str(df[date_col].dtype)
-                    before_hour_dtype = str(df[hour_col].dtype)
+                if st.button("✅ Confirm date + hour mapping"):
+                    st.session_state.date_hour_confirmed = True
+                    st.session_state.date_col_snapshot = date_col
+                    st.session_state.time_col_snapshot = hour_col
+                    st.rerun()
 
-                    pref = Preference_Date_And_Hour(df, date_col=date_col, hour_col=hour_col)
-                    pref.detect_date_dtype()
-                    pref.normalize_hour_column()
-                    moment_rate = pref.create_moment_column(out_col="moment")
+                if not st.session_state.date_hour_confirmed:
+                    st.warning("Confirm date/hour to proceed with merging & parsing.")
+                else:
+                    try:
+                        before_date_dtype = str(df[date_col].dtype)
+                        before_hour_dtype = str(df[hour_col].dtype)
 
-                    refiner2 = TableRefiner(pref.table)
-                    refiner2.keep_only_moment_and_consumption(
-                        moment_col="moment",
-                        consumption_col="consumption_kwh",
-                    )
-                    refiner2.drop_trailing_empty_rows()
-                    refiner2.drop_empty_columns()
-                    pref.table = refiner2.table
+                        pref = Preference_Date_And_Hour(df, date_col=date_col, hour_col=hour_col)
+                        pref.detect_date_dtype()
+                        pref.normalize_hour_column()
+                        moment_rate = pref.create_moment_column(out_col="moment")
 
-                    st.session_state.df_processed = pref.table
-                    df = st.session_state.df_processed
+                        refiner2 = TableRefiner(pref.table)
+                        refiner2.keep_only_moment_and_consumption(
+                            moment_col="moment",
+                            consumption_col="consumption_kwh",
+                        )
+                        refiner2.drop_trailing_empty_rows()
+                        refiner2.drop_empty_columns()
+                        pref.table = refiner2.table
 
-                    moment_dtype = str(df["moment"].dtype) if "moment" in df.columns else "N/A"
+                        st.session_state.df_processed = pref.table
+                        df = st.session_state.df_processed
 
-                    st.success(
-                        f"✅ Date column **{date_col}** normalized (dtype: `{before_date_dtype}` → `string`)."
-                    )
-                    st.success(
-                        f"✅ Hour column **{hour_col}** normalized to `HH:MM:SS` (dtype: `{before_hour_dtype}` → `string`)."
-                    )
-                    st.success(
-                        f"✅ Created **moment** (dtype: `{moment_dtype}`), parse success rate: **{moment_rate:.2%}**"
-                    )
-                    st.success("✅ Dropped all other columns (kept only `moment` and `consumption_kwh`).")
+                        moment_dtype = str(df["moment"].dtype) if "moment" in df.columns else "N/A"
 
-                except Exception as e:
-                    st.error(f"❌ I couldn't normalize/merge date+hour: {e}")
+                        st.success(
+                            f"✅ Date column **{date_col}** normalized (dtype: `{before_date_dtype}` → `string`)."
+                        )
+                        st.success(
+                            f"✅ Hour column **{hour_col}** normalized to `HH:MM:SS` (dtype: `{before_hour_dtype}` → `string`)."
+                        )
+                        st.success(
+                            f"✅ Created **moment** (dtype: `{moment_dtype}`), parse success rate: **{moment_rate:.2%}**"
+                        )
+                        st.success("✅ Dropped all other columns (kept only `moment` and `consumption_kwh`).")
+
+                    except Exception as e:
+                        st.error(f"❌ I couldn't normalize/merge date+hour: {e}")
 
     # ==============================================================================
     # Final preview + Save
@@ -388,10 +534,10 @@ if st.session_state.step == 1:
         st.write("---")
         st.subheader("Final table preview")
 
-        st.write("### First 20 rows")
+        st.write("### First 20 rows:")
         st.dataframe(df.head(20), use_container_width=True)
 
-        st.write("### Last 20 rows")
+        st.write("### Last 20 rows:")
         st.dataframe(df.tail(20), use_container_width=True)
 
         st.info(
@@ -449,10 +595,29 @@ if st.session_state.step == 1:
             st.session_state.save_name = ""
             st.session_state.saved_path = None
             st.session_state.pipeline_summary = None
+
+            # reset confirm gates
+            st.session_state.time_cols_confirmed = False
+            st.session_state.time_selected_snapshot = []
+
+            st.session_state.single_mode_confirmed = False
+            st.session_state.single_mode_value = None
+
+            st.session_state.pair_mode_confirmed = False
+            st.session_state.pair_mode_value = None
+
+            st.session_state.from_to_confirmed = False
+            st.session_state.from_col_snapshot = None
+            st.session_state.to_col_snapshot = None
+
+            st.session_state.date_hour_confirmed = False
+            st.session_state.date_col_snapshot = None
+            st.session_state.time_col_snapshot = None
+
             st.rerun()
 
     with colB:
-        proceed_disabled = (len(st.session_state.time_selected) == 0)
+        proceed_disabled = (len(st.session_state.time_selected) == 0) or (not st.session_state.time_cols_confirmed)
         if st.button("Continue (next step)", disabled=proceed_disabled):
             st.info(
                 "Next step: we will profile selected time columns and ask how to interpret them "
