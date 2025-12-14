@@ -22,6 +22,7 @@ from src.data_core.writer import TableWriter
 def init_state():
     defaults = {
         "step": 0,  # 0: upload, 1: preview+time select
+        "df_raw": None,  # ✅ NEW: raw upload (no changes)
         "df_processed": None,
         "consumption_col": None,
         "time_candidates": [],
@@ -55,6 +56,9 @@ def run_automatic_pipeline(file_path: str) -> dict:
     if table is None:
         table = df_processed
 
+    # ✅ NEW: keep a copy of the raw uploaded table (no cleaning, no header detection)
+    raw_table = table.copy()
+
     refiner = TableRefiner(table)
     refiner.clean_table()
     table = refiner.table
@@ -76,6 +80,7 @@ def run_automatic_pipeline(file_path: str) -> dict:
     time_candidates = time_det.detect_time_columns()
 
     return {
+        "df_raw": raw_table,  # ✅ NEW
         "df_processed": final_table,
         "consumption_col": consumption_col,
         "time_candidates": time_candidates,
@@ -108,6 +113,9 @@ if st.session_state.step == 0:
 
             results = run_automatic_pipeline(temp_path)
 
+            # ✅ NEW: store raw upload for preview
+            st.session_state.df_raw = results["df_raw"]
+
             st.session_state.df_processed = results["df_processed"]
             st.session_state.consumption_col = results["consumption_col"]
             st.session_state.time_candidates = results["time_candidates"]
@@ -137,6 +145,18 @@ if st.session_state.step == 0:
 # STEP 1: Preview + Time selection
 # ------------------------------------------------------------------------------
 if st.session_state.step == 1:
+    # ✅ NEW: show RAW preview first (no changes)
+    df_raw = st.session_state.df_raw
+    if isinstance(df_raw, pd.DataFrame):
+        st.subheader("Original upload preview (raw, no changes)")
+        st.write("### First 10 rows (raw)")
+        st.dataframe(df_raw.head(10), use_container_width=True)
+
+        st.write("### Last 10 rows (raw)")
+        st.dataframe(df_raw.tail(10), use_container_width=True)
+
+        st.write("---")
+
     st.subheader("Data Processed (Automatic Steps Done)")
     st.info(
         "I automatically cleaned your table, applied header detection, "
@@ -225,7 +245,6 @@ if st.session_state.step == 1:
                         moment_col="moment",
                         consumption_col="consumption_kwh",
                     )
-                    # ✅ trim trailing empty rows + drop empty columns
                     refiner2.drop_trailing_empty_rows()
                     refiner2.drop_empty_columns()
                     pref.table = refiner2.table
@@ -248,7 +267,7 @@ if st.session_state.step == 1:
                 except Exception as e:
                     st.error(f"❌ I couldn't normalize the single datetime column: {e}")
 
-        # two-column flow (unchanged)
+        # two-column flow
         if len(st.session_state.time_selected) == 2:
             c1, c2 = st.session_state.time_selected
 
@@ -306,7 +325,6 @@ if st.session_state.step == 1:
                         moment_col="moment",
                         consumption_col="consumption_kwh",
                     )
-                    # ✅ trim trailing empty rows + drop empty columns
                     refiner2.drop_trailing_empty_rows()
                     refiner2.drop_empty_columns()
                     pref.table = refiner2.table
@@ -343,8 +361,7 @@ if st.session_state.step == 1:
     )
 
     if final_ready:
-        # ✅ ensure trailing empty rows removed at the very end too
-        # ✅ and drop empty columns before saving
+        # ensure trailing empty rows removed + empty columns dropped right before saving
         try:
             ref_final = TableRefiner(df)
             ref_final.drop_trailing_empty_rows()
@@ -405,6 +422,7 @@ if st.session_state.step == 1:
     with colA:
         if st.button("Back to upload"):
             st.session_state.step = 0
+            st.session_state.df_raw = None
             st.session_state.df_processed = None
             st.session_state.consumption_col = None
             st.session_state.time_candidates = []
