@@ -17,7 +17,7 @@ source .venv_ctr/bin/activate
 #### Windows (PowerShell)
 ```bash
 python -m venv .venv_ctr
-.\.venv_cdc\Scripts\Activate.ps1
+.\.venv_ctr\Scripts\Activate.ps1
 ```
 
 ### 3) Install dependencies
