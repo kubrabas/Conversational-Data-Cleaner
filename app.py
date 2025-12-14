@@ -10,8 +10,10 @@ from src.intelligence.columns import ConsumptionColumnDetector, TimeColumnDetect
 
 from src.intelligence.columns.time import (
     Preference_Date_And_Hour,
-    Preference_SingleDateTime,  # <- NEW
+    Preference_SingleDateTime,
 )
+
+from src.data_core.writer import TableWriter
 
 
 # ==============================================================================
@@ -30,6 +32,8 @@ def init_state():
         "date_col": None,
         "time_col": None,
         "log": [],
+        "save_name": "",
+        "saved_path": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -115,6 +119,10 @@ if st.session_state.step == 0:
             st.session_state.date_col = None
             st.session_state.time_col = None
 
+            # reset save state on new upload
+            st.session_state.save_name = ""
+            st.session_state.saved_path = None
+
             os.remove(temp_path)
 
             st.session_state.step = 1
@@ -183,7 +191,7 @@ if st.session_state.step == 1:
         else:
             st.info("No time columns selected yet.")
 
-        # ✅ NEW: single-column flow
+        # ✅ single-column flow
         if len(st.session_state.time_selected) == 1:
             single_col = st.session_state.time_selected[0]
 
@@ -212,12 +220,13 @@ if st.session_state.step == 1:
                     extract_rate = pref.extract_date_and_hour()
                     moment_rate = pref.create_moment_column()
 
-                    # ✅ keep only moment + consumption_kwh
                     refiner2 = TableRefiner(pref.table)
                     refiner2.keep_only_moment_and_consumption(
                         moment_col="moment",
                         consumption_col="consumption_kwh",
                     )
+                    # ✅ NEW: trim trailing empty rows
+                    refiner2.drop_trailing_empty_rows()
                     pref.table = refiner2.table
 
                     st.session_state.df_processed = pref.table
@@ -235,13 +244,10 @@ if st.session_state.step == 1:
                     )
                     st.success("✅ Dropped all other columns (kept only `moment` and `consumption_kwh`).")
 
-                    st.caption("Final preview (first 10 rows):")
-                    st.dataframe(df.head(10), use_container_width=True)
-
                 except Exception as e:
                     st.error(f"❌ I couldn't normalize the single datetime column: {e}")
 
-        # existing two-column flow (unchanged)
+        # two-column flow (unchanged)
         if len(st.session_state.time_selected) == 2:
             c1, c2 = st.session_state.time_selected
 
@@ -281,7 +287,6 @@ if st.session_state.step == 1:
                 st.session_state.time_col = c2 if st.session_state.date_col == c1 else c1
                 st.info(f"Time part column: **{st.session_state.time_col}**")
 
-                # Normalize DATE + HOUR and create "moment"
                 try:
                     date_col = st.session_state.date_col
                     hour_col = st.session_state.time_col
@@ -295,12 +300,13 @@ if st.session_state.step == 1:
                     pref.normalize_hour_column()
                     moment_rate = pref.create_moment_column(out_col="moment")
 
-                    # ✅ keep only moment + consumption_kwh (method lives in TableRefiner)
                     refiner2 = TableRefiner(pref.table)
                     refiner2.keep_only_moment_and_consumption(
                         moment_col="moment",
                         consumption_col="consumption_kwh",
                     )
+                    # ✅ NEW: trim trailing empty rows
+                    refiner2.drop_trailing_empty_rows()
                     pref.table = refiner2.table
 
                     st.session_state.df_processed = pref.table
@@ -321,11 +327,74 @@ if st.session_state.step == 1:
                     )
                     st.success("✅ Dropped all other columns (kept only `moment` and `consumption_kwh`).")
 
-                    st.caption("Final preview (first 10 rows):")
-                    st.dataframe(df.head(10), use_container_width=True)
-
                 except Exception as e:
                     st.error(f"❌ I couldn't normalize/merge date+hour: {e}")
+
+    # ==============================================================================
+    # Final preview + Save
+    # ==============================================================================
+    df = st.session_state.df_processed
+    final_ready = (
+        isinstance(df, pd.DataFrame)
+        and set(df.columns) == {"moment", "consumption_kwh"}
+        and len(df) > 0
+    )
+
+    if final_ready:
+        # ✅ NEW: ensure trailing empty rows removed at the very end too
+        try:
+            ref_final = TableRefiner(df)
+            ref_final.drop_trailing_empty_rows()
+            df = ref_final.table
+            st.session_state.df_processed = df
+        except Exception:
+            pass
+
+        st.write("---")
+        st.subheader("Final table preview")
+
+        st.write("### First 10 rows")
+        st.dataframe(df.head(10), use_container_width=True)
+
+        st.write("### Last 10 rows")
+        st.dataframe(df.tail(10), use_container_width=True)
+
+        st.info(
+            "This is your final table. To save it, please give your table a name.\n\n"
+            "Example formats:\n"
+            "- `ContractNumber_89578345`\n"
+            "- `ContractId_8458_7384djfnjd_`"
+        )
+
+        st.session_state.save_name = st.text_input(
+            "Table name (no extension):",
+            value=st.session_state.save_name,
+            placeholder="ContractNumber_89578345",
+        )
+
+        save_disabled = (st.session_state.save_name.strip() == "")
+
+        # ✅ NEW: two save buttons
+        s1, s2 = st.columns(2)
+        with s1:
+            if st.button("Save as Excel (.xlsx)", disabled=save_disabled):
+                try:
+                    writer = TableWriter()
+                    out_path = writer.save_xlsx(df, st.session_state.save_name.strip(), index=False)
+                    st.session_state.saved_path = str(out_path)
+                    st.success(f"✅ Saved! File written to: `{st.session_state.saved_path}`")
+                except Exception as e:
+                    st.error(f"❌ Could not save file: {e}")
+
+        with s2:
+            if st.button("Save as CSV (.csv)", disabled=save_disabled):
+                try:
+                    writer = TableWriter()
+                    out_path = writer.save_csv(df, st.session_state.save_name.strip(), index=False)
+                    st.session_state.saved_path = str(out_path)
+                    st.success(f"✅ Saved! File written to: `{st.session_state.saved_path}`")
+                except Exception as e:
+                    st.error(f"❌ Could not save file: {e}")
 
     st.write("---")
 
@@ -342,6 +411,8 @@ if st.session_state.step == 1:
             st.session_state.time_to_col = None
             st.session_state.date_col = None
             st.session_state.time_col = None
+            st.session_state.save_name = ""
+            st.session_state.saved_path = None
             st.rerun()
 
     with colB:
