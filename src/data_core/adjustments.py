@@ -15,13 +15,13 @@ class TableRefiner:
         # Drop columns that are completely NaN
         self.table = self.table.dropna(axis=1, how="all")
 
-        # ✅ Drop columns that are empty strings / whitespace-only in every cell
+        # Drop columns that are empty strings / whitespace-only in every cell
         self.drop_empty_columns()
 
         # Drop rows that are completely NaN
         self.table = self.table.dropna(axis=0, how="all")
 
-        # ✅ Trim trailing empty rows at bottom (incl. empty strings)
+        # Trim trailing empty rows at bottom (incl. empty strings)
         self.drop_trailing_empty_rows()
 
         self.columns = list(self.table.columns)

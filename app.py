@@ -213,7 +213,6 @@ if st.session_state.step == 1:
         st.write("### Last 20 rows:")
         st.dataframe(df_raw.tail(20), use_container_width=True)
 
-    # ✅ NEW: only consumption info (no processed preview)
     st.write("---")
     st.subheader("Consumption column")
 
@@ -277,7 +276,6 @@ if st.session_state.step == 1:
 
             st.markdown("#### You selected one time-related column")
 
-            # ✅ UPDATED UI TEXT + single option
             st.write("What is the format of the column you selected?")
 
             single_mode = st.radio(
@@ -318,11 +316,10 @@ if st.session_state.step == 1:
                         st.session_state.df_processed = pref.table
                         df = st.session_state.df_processed
 
-                        # ✅ Minimal messaging only
-                        st.success("✅ Success! Your final table is ready.")
+                        st.success("Success! Your final table is ready.")
 
                     except Exception as e:
-                        st.error(f"❌ I couldn't normalize the single datetime column: {e}")
+                        st.error(f"I couldn't normalize the single datetime column: {e}")
 
         # ------------------------------------------------------------------
         # two-column flow (ONLY after confirming selected time columns)
@@ -378,7 +375,7 @@ if st.session_state.step == 1:
                 if (from_col != st.session_state.from_col_snapshot) or (to_col != st.session_state.to_col_snapshot):
                     st.session_state.from_to_confirmed = False
 
-                if st.button("✅ Confirm from → to mapping"):
+                if st.button("Confirm from → to mapping"):
                     st.session_state.from_to_confirmed = True
                     st.session_state.from_col_snapshot = from_col
                     st.session_state.to_col_snapshot = to_col
@@ -438,18 +435,16 @@ if st.session_state.step == 1:
                         st.session_state.df_processed = pref.table
                         df = st.session_state.df_processed
 
-                        # ✅ Minimal messaging only
-                        st.success("✅ Success! Your final table is ready.")
+                        st.success("Success! Your final table is ready.")
 
                     except Exception as e:
-                        st.error(f"❌ I couldn't normalize/merge date+hour: {e}")
+                        st.error(f"I couldn't normalize/merge date+hour: {e}")
 
     # ==============================================================================
     # Final preview + Save
     # ==============================================================================
     df = st.session_state.df_processed
 
-    # ✅ NEW: apply the 15-minute shift rule right before final table preview logic
     try:
         ref_shift = TableRefiner(df)
         ref_shift.shift_moment_minus_15_if_first15_last00(moment_col="moment")
@@ -506,9 +501,9 @@ if st.session_state.step == 1:
                     writer = TableWriter()
                     out_path = writer.save_xlsx(df, st.session_state.save_name.strip(), index=False)
                     st.session_state.saved_path = str(out_path)
-                    st.success(f"✅ Saved! File written to: `{st.session_state.saved_path}`")
+                    st.success(f"Saved! File written to: `{st.session_state.saved_path}`")
                 except Exception as e:
-                    st.error(f"❌ Could not save file: {e}")
+                    st.error(f"Could not save file: {e}")
 
         with s2:
             if st.button("Save as CSV (.csv)", disabled=save_disabled):
@@ -516,9 +511,9 @@ if st.session_state.step == 1:
                     writer = TableWriter()
                     out_path = writer.save_csv(df, st.session_state.save_name.strip(), index=False)
                     st.session_state.saved_path = str(out_path)
-                    st.success(f"✅ Saved! File written to: `{st.session_state.saved_path}`")
+                    st.success(f"Saved! File written to: `{st.session_state.saved_path}`")
                 except Exception as e:
-                    st.error(f"❌ Could not save file: {e}")
+                    st.error(f"Could not save file: {e}")
 
     st.write("---")
 
