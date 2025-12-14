@@ -192,7 +192,7 @@ if st.session_state.step == 1:
         st.warning("I could not confidently detect a consumption column, so no kWh standardization was applied.")
 
     st.write("---")
-    st.write("### Time-related columns detected")
+    st.write("### Time-related column")
     candidates = st.session_state.time_candidates or []
 
     if not candidates:
