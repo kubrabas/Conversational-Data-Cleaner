@@ -4,19 +4,19 @@
 
 ### 1) Clone and enter the project
 ```bash
-git clone https://github.com/kubrabas/Conversational-Data-Cleaner.git
-cd Conversational-Data-Cleaner
+git clone https://github.com/kubrabas/Consumption-Table-Refiner.git
+cd Consumption-Table-Refiner
 ```
 
 ### 2) Create & activate a virtual environment
 #### macOS / Linux
 ```bash
-python -m venv .venv_cdc
-source .venv_cdc/bin/activate
+python -m venv .venv_ctr
+source .venv_ctr/bin/activate
 ```
 #### Windows (PowerShell)
 ```bash
-python -m venv .venv_cdc
+python -m venv .venv_ctr
 .\.venv_cdc\Scripts\Activate.ps1
 ```
 
