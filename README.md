@@ -1,4 +1,4 @@
-# Conversational-Data-Cleaner
+# CConsumption-Table-Refiner
 
 ## Install & Run locally
 
