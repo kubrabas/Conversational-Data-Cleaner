@@ -140,7 +140,7 @@ st.markdown("## Let's Get Your Table Ready!")
 # ------------------------------------------------------------------------------
 if st.session_state.step == 0:
     st.write("Upload your Excel file to start the cleaning and standardization process.")
-    uploaded_file = st.file_uploader("Upload Data File (XLSX/XLS)", type=["xlsx", "xls"])
+    uploaded_file = st.file_uploader("Upload Data File (XLSX/XLSX)", type=["xlsx", "xls"])
 
     if uploaded_file:
         try:
@@ -236,9 +236,6 @@ if st.session_state.step == 1:
         st.write("We found the following time-related columns in your uploaded file:")
         st.code("\n".join([f"- {c}" for c in candidates]), language="text")
 
-        # (Removed) Select all / Clear selection buttons
-        st.write(f"Selected: {len(st.session_state.time_selected)}")
-
         # ----- NO DROPDOWN: checkbox list (multi-select) + confirm gate -----
         st.markdown("#### Select time-related columns")
         new_selected = []
@@ -259,8 +256,6 @@ if st.session_state.step == 1:
 
         df = st.session_state.df_processed
 
-        # (REMOVED) Selected time columns success message
-
         if not st.session_state.time_selected:
             st.info("No time related columns selected yet.")
 
@@ -273,8 +268,6 @@ if st.session_state.step == 1:
         else:
             st.session_state.time_cols_confirmed = False
             st.session_state.time_selected_snapshot = []
-
-        # (REMOVED) Please confirm warning message
 
         # ------------------------------------------------------------------
         # single-column flow (ONLY after confirming selected time columns)
@@ -361,8 +354,6 @@ if st.session_state.step == 1:
                 options=[
                     "These two columns represent a start and end time (from → to).",
                     "These two columns together form a single timestamp (date + hour).",
-                    "These are two independent time fields (keep them separate).",
-                    "Not sure yet (I want to decide later).",
                 ],
                 index=1,
             )
@@ -428,7 +419,7 @@ if st.session_state.step == 1:
                 if (date_col != st.session_state.date_col_snapshot) or (hour_col != st.session_state.time_col_snapshot):
                     st.session_state.date_hour_confirmed = False
 
-                if st.button("✅ Confirm date + hour mapping"):
+                if st.button("Confirm date + hour mapping"):
                     st.session_state.date_hour_confirmed = True
                     st.session_state.date_col_snapshot = date_col
                     st.session_state.time_col_snapshot = hour_col
