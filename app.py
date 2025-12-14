@@ -177,9 +177,7 @@ if st.session_state.step == 1:
         st.write("### Last 20 rows")
         st.dataframe(df_raw.tail(20), use_container_width=True)
 
-        
-
-    # ✅ NEW: only consumption info (no processed preview)
+    # only consumption info (no processed preview)
     st.write("---")
     st.subheader("Consumption column")
 
@@ -202,34 +200,23 @@ if st.session_state.step == 1:
         st.write("We found the following time-related columns in your uploaded file:")
         st.code("\n".join([f"- {c}" for c in candidates]), language="text")
 
-        a, b, c = st.columns(3)
-        with a:
-            if st.button("Select all time columns"):
-                st.session_state.time_selected = candidates
-                st.rerun()
-        with b:
-            if st.button("Clear selection"):
-                st.session_state.time_selected = []
-                st.session_state.time_pair_mode = None
-                st.session_state.time_from_col = None
-                st.session_state.time_to_col = None
-                st.session_state.date_col = None
-                st.session_state.time_col = None
-                st.rerun()
-        with c:
-            st.write(f"Selected: {len(st.session_state.time_selected)}")
+        # ✅ label above selection (no buttons, no count)
+        st.write("Which of these columns would you like to use for time?")
 
-        st.session_state.time_selected = st.multiselect(
-            "Which of these columns would you like to use for time?",
-            options=candidates,
-            default=st.session_state.time_selected,
-        )
+        # ✅ candidates as checkboxes (no dropdown)
+        selected_now = []
+        for col in candidates:
+            key = f"time_pick_{col}"
+            default_checked = col in (st.session_state.time_selected or [])
+            checked = st.checkbox(col, value=default_checked, key=key)
+            if checked:
+                selected_now.append(col)
+
+        st.session_state.time_selected = selected_now
 
         df = st.session_state.df_processed
 
-        if st.session_state.time_selected:
-            st.success(f"Selected time columns: {st.session_state.time_selected}")
-        else:
+        if not st.session_state.time_selected:
             st.info("No time columns selected yet.")
 
         # single-column flow
@@ -436,6 +423,13 @@ if st.session_state.step == 1:
     colA, colB = st.columns(2)
     with colA:
         if st.button("Back to upload"):
+            # clear checkbox widget states BEFORE wiping candidates
+            candidates_to_clear = st.session_state.time_candidates or []
+            for col in candidates_to_clear:
+                k = f"time_pick_{col}"
+                if k in st.session_state:
+                    del st.session_state[k]
+
             st.session_state.step = 0
             st.session_state.df_raw = None
             st.session_state.df_processed = None
