@@ -405,7 +405,7 @@ if st.session_state.step == 1:
                 and st.session_state.time_pair_mode.startswith("These two columns together form a single timestamp")
             ):
                 st.session_state.date_col = st.radio(
-                    "Which one is the date part?",
+                    "From the two columns you selected, which one should be used to extract the date information?",
                     options=[c1, c2],
                     index=0,
                     key="date_col_radio",
@@ -413,7 +413,11 @@ if st.session_state.step == 1:
                 date_col = st.session_state.date_col
                 hour_col = c2 if date_col == c1 else c1
                 st.session_state.time_col = hour_col
-                st.info(f"Hour part column: **{hour_col}**")
+
+                st.info(
+                    f"Date information will be extracted using the **{date_col}** column.\n\n"
+                    f"Hour information will be extracted using the **{hour_col}** column."
+                )
 
                 # confirm gate (date+hour)
                 if (date_col != st.session_state.date_col_snapshot) or (hour_col != st.session_state.time_col_snapshot):
