@@ -121,7 +121,7 @@ st.markdown("## Let's Get Your Table Ready!")
 # STEP 0: Upload
 # ------------------------------------------------------------------------------
 if st.session_state.step == 0:
-    st.write("Hey buddy! Upload your Excel file to start the cleaning and standardization process.")
+    st.write("Upload your Excel file to start the cleaning and standardization process.")
     uploaded_file = st.file_uploader("Upload Data File (XLSX/XLS)", type=["xlsx", "xls"])
 
     if uploaded_file:
