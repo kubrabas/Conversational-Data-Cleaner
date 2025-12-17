@@ -2,6 +2,7 @@ import os
 import tempfile
 import streamlit as st
 import pandas as pd
+import matplotlib.dates as mdates  # <-- NEW
 
 from src.data_core.reader import DataReader
 from src.data_core.adjustments import TableRefiner
@@ -14,6 +15,9 @@ from src.intelligence.columns.time import (
 )
 
 from src.data_core.writer import TableWriter
+
+# --- plotting helper class ---
+from src.plot.data_plotter import DataPlotter
 
 
 # ==============================================================================
@@ -37,7 +41,7 @@ def init_state():
         "saved_path": None,
         "pipeline_summary": None,  # still stored, but not shown
 
-        # --- NEW: keep temp file across reruns (needed for multi-sheet pick) ---
+        # --- keep temp file across reruns (needed for multi-sheet pick) ---
         "uploaded_temp_path": None,
         "uploaded_file_name": None,
 
@@ -58,6 +62,11 @@ def init_state():
         "date_hour_confirmed": False,
         "date_col_snapshot": None,
         "time_col_snapshot": None,
+
+        # --- plot flow state ---
+        "plot_wants": "No",  # "No" | "Yes"
+        "random_week_info": None,  # dict or None
+        "random_week_clicks": 0,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -79,6 +88,18 @@ def _cleanup_uploaded_temp_if_exists():
     st.session_state.uploaded_file_name = None
 
 
+# --- NEW: format x-axis ticks as DD-MM-YYYY HH:MM ---
+def _format_datetime_xaxis(fig):
+    try:
+        if fig and getattr(fig, "axes", None):
+            ax = fig.axes[0]
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%d-%m-%Y %H:%M"))
+            fig.autofmt_xdate()
+    except Exception:
+        pass
+    return fig
+
+
 # ==============================================================================
 # Core pipeline (automatic)
 # ==============================================================================
@@ -90,36 +111,30 @@ def run_automatic_pipeline(file_path: str) -> dict:
     if table is None:
         table = df_processed
 
-    # Keep a copy of the raw uploaded table (no cleaning, no header detection)
     raw_table = table.copy()
     raw_shape = raw_table.shape
 
-    # Clean #1
     refiner1 = TableRefiner(table)
     refiner1.clean_table()
     table = refiner1.table
     clean1_shape = table.shape
 
-    # Header detection
     header_det = HeaderDetector(table)
     header_det.apply_header()
     table = header_det.table
     header_shape = table.shape
 
-    # Clean #2
     refiner2 = TableRefiner(table)
     refiner2.clean_table()
     table = refiner2.table
     clean2_shape = table.shape
 
-    # Consumption standardization
     cons_det = ConsumptionColumnDetector(table)
     consumption_col = cons_det.detect_consumption_column()
     _cons_kwh_series = cons_det.to_kwh()
     final_table = cons_det.table
     final_shape = final_table.shape
 
-    # Time candidates
     time_det = TimeColumnDetector(final_table)
     time_candidates = time_det.detect_time_columns()
 
@@ -155,15 +170,15 @@ st.markdown("## Let's Get Your Table Ready!")
 # ------------------------------------------------------------------------------
 if st.session_state.step == 0:
     st.write("Upload your data file to start the cleaning and standardization process.")
-    uploaded_file = st.file_uploader("Upload Data File (XLSX/XLS/CSV)", type=["xlsx", "xls", "csv"])
+    uploaded_file = st.file_uploader(
+        "Upload Data File (XLSX/XLS/CSV)", type=["xlsx", "xls", "csv"]
+    )
 
     if uploaded_file:
         try:
-            # If a new file is uploaded (different name), reset previous temp
             if st.session_state.uploaded_file_name != uploaded_file.name:
                 _cleanup_uploaded_temp_if_exists()
 
-            # Create temp file once and keep it across reruns (needed for multi-sheet selection)
             if st.session_state.uploaded_temp_path is None:
                 suffix = os.path.splitext(uploaded_file.name)[-1].lower() or ".xlsx"
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -174,7 +189,6 @@ if st.session_state.step == 0:
 
             temp_path = st.session_state.uploaded_temp_path
 
-            # This may stop() internally if multi-sheet selection needs confirmation
             results = run_automatic_pipeline(temp_path)
 
             st.session_state.df_raw = results["df_raw"]
@@ -190,11 +204,13 @@ if st.session_state.step == 0:
             st.session_state.date_col = None
             st.session_state.time_col = None
 
-            # reset save state on new upload
             st.session_state.save_name = ""
             st.session_state.saved_path = None
 
-            # reset confirm gates on new upload
+            st.session_state.plot_wants = "No"
+            st.session_state.random_week_info = None
+            st.session_state.random_week_clicks = 0
+
             st.session_state.time_cols_confirmed = False
             st.session_state.time_selected_snapshot = []
 
@@ -212,7 +228,6 @@ if st.session_state.step == 0:
             st.session_state.date_col_snapshot = None
             st.session_state.time_col_snapshot = None
 
-            # Clean up temp file ONLY after the pipeline fully finishes
             _cleanup_uploaded_temp_if_exists()
 
             st.session_state.step = 1
@@ -227,14 +242,11 @@ if st.session_state.step == 0:
 # STEP 1: Preview + Time selection
 # ------------------------------------------------------------------------------
 if st.session_state.step == 1:
-    # RAW preview (no changes)
     df_raw = st.session_state.df_raw
     if isinstance(df_raw, pd.DataFrame):
         st.subheader("Original upload preview")
-
         st.write("### First 20 rows:")
         st.dataframe(df_raw.head(20), use_container_width=True)
-
         st.write("### Last 20 rows:")
         st.dataframe(df_raw.tail(20), use_container_width=True)
 
@@ -248,7 +260,9 @@ if st.session_state.step == 1:
             f"standardized to **consumption_kwh**."
         )
     else:
-        st.warning("I could not confidently detect a consumption column, so no kWh standardization was applied.")
+        st.warning(
+            "I could not confidently detect a consumption column, so no kWh standardization was applied."
+        )
 
     st.write("---")
     st.write("### Time-related column")
@@ -260,7 +274,6 @@ if st.session_state.step == 1:
         st.write("We found the following time-related columns in your uploaded file:")
         st.code("\n".join([f"- {c}" for c in candidates]), language="text")
 
-        # ----- NO DROPDOWN: checkbox list (multi-select) + confirm gate -----
         st.markdown("#### Select time-related columns")
         new_selected = []
         for colname in candidates:
@@ -272,18 +285,15 @@ if st.session_state.step == 1:
             if checked:
                 new_selected.append(colname)
 
-        # if selection changed after confirm, unconfirm automatically
         if new_selected != st.session_state.time_selected_snapshot:
             st.session_state.time_cols_confirmed = False
 
         st.session_state.time_selected = new_selected
-
         df = st.session_state.df_processed
 
         if not st.session_state.time_selected:
             st.info("No time related columns selected yet.")
 
-        # confirm gate (time columns)
         if st.session_state.time_selected:
             if st.button("Confirm selection"):
                 st.session_state.time_cols_confirmed = True
@@ -293,14 +303,10 @@ if st.session_state.step == 1:
             st.session_state.time_cols_confirmed = False
             st.session_state.time_selected_snapshot = []
 
-        # ------------------------------------------------------------------
-        # single-column flow (ONLY after confirming selected time columns)
-        # ------------------------------------------------------------------
         if st.session_state.time_cols_confirmed and len(st.session_state.time_selected) == 1:
             single_col = st.session_state.time_selected[0]
 
             st.markdown("#### You selected one time-related column")
-
             st.write("What is the format of the column you selected?")
 
             single_mode = st.radio(
@@ -311,7 +317,6 @@ if st.session_state.step == 1:
                 index=0,
             )
 
-            # selection change -> unconfirm
             if st.session_state.single_mode_value != single_mode:
                 st.session_state.single_mode_confirmed = False
             st.session_state.single_mode_value = single_mode
@@ -342,13 +347,9 @@ if st.session_state.step == 1:
                         df = st.session_state.df_processed
 
                         st.success("Success! Your final table is ready.")
-
                     except Exception as e:
                         st.error(f"I couldn't normalize the single datetime column: {e}")
 
-        # ------------------------------------------------------------------
-        # two-column flow (ONLY after confirming selected time columns)
-        # ------------------------------------------------------------------
         if st.session_state.time_cols_confirmed and len(st.session_state.time_selected) == 2:
             c1, c2 = st.session_state.time_selected
 
@@ -368,7 +369,6 @@ if st.session_state.step == 1:
                 index=1,
             )
 
-            # confirm gate (pair interpretation)
             if st.session_state.pair_mode_value != st.session_state.time_pair_mode:
                 st.session_state.pair_mode_confirmed = False
             st.session_state.pair_mode_value = st.session_state.time_pair_mode
@@ -380,10 +380,11 @@ if st.session_state.step == 1:
             if not st.session_state.pair_mode_confirmed:
                 st.warning("Confirm the interpretation to continue.")
 
-            # from-to mapping (NO DROPDOWN, only after pair-mode confirmed)
             if (
                 st.session_state.pair_mode_confirmed
-                and st.session_state.time_pair_mode.startswith("These two columns represent a start and end time")
+                and st.session_state.time_pair_mode.startswith(
+                    "These two columns represent a start and end time"
+                )
             ):
                 st.session_state.time_from_col = st.radio(
                     "Start time column (from):",
@@ -396,8 +397,9 @@ if st.session_state.step == 1:
                 st.session_state.time_to_col = to_col
                 st.info(f"End time column (to): **{to_col}**")
 
-                # confirm gate (from->to)
-                if (from_col != st.session_state.from_col_snapshot) or (to_col != st.session_state.to_col_snapshot):
+                if (from_col != st.session_state.from_col_snapshot) or (
+                    to_col != st.session_state.to_col_snapshot
+                ):
                     st.session_state.from_to_confirmed = False
 
                 if st.button("Confirm from → to mapping"):
@@ -409,10 +411,11 @@ if st.session_state.step == 1:
                 if not st.session_state.from_to_confirmed:
                     st.warning("Confirm from/to to proceed.")
 
-            # date+hour mapping (NO DROPDOWN, only after pair-mode confirmed)
             if (
                 st.session_state.pair_mode_confirmed
-                and st.session_state.time_pair_mode.startswith("These two columns together form a single timestamp")
+                and st.session_state.time_pair_mode.startswith(
+                    "These two columns together form a single timestamp"
+                )
             ):
                 st.session_state.date_col = st.radio(
                     "From the two columns you selected, which one should be used to extract the date information?",
@@ -429,8 +432,9 @@ if st.session_state.step == 1:
                     f"Hour information will be extracted using the **{hour_col}** column."
                 )
 
-                # confirm gate (date+hour)
-                if (date_col != st.session_state.date_col_snapshot) or (hour_col != st.session_state.time_col_snapshot):
+                if (date_col != st.session_state.date_col_snapshot) or (
+                    hour_col != st.session_state.time_col_snapshot
+                ):
                     st.session_state.date_hour_confirmed = False
 
                 if st.button("Confirm date + hour mapping"):
@@ -461,12 +465,11 @@ if st.session_state.step == 1:
                         df = st.session_state.df_processed
 
                         st.success("Success! Your final table is ready.")
-
                     except Exception as e:
                         st.error(f"I couldn't normalize/merge date+hour: {e}")
 
     # ==============================================================================
-    # Final preview + Save
+    # Final preview + Plot (optional) + Save
     # ==============================================================================
     df = st.session_state.df_processed
 
@@ -485,7 +488,6 @@ if st.session_state.step == 1:
     )
 
     if final_ready:
-        # ensure trailing empty rows removed + empty columns dropped right before saving
         try:
             ref_final = TableRefiner(df)
             ref_final.drop_trailing_empty_rows()
@@ -504,8 +506,63 @@ if st.session_state.step == 1:
         st.write("### Last 20 rows:")
         st.dataframe(df.tail(20), use_container_width=True)
 
+        st.write("---")
+        st.subheader("Optional: Plot your unified data")
+
+        st.session_state.plot_wants = st.radio(
+            "Do you want to plot this data before downloading?",
+            options=["No", "Yes"],
+            index=0 if st.session_state.plot_wants != "Yes" else 1,
+            key="plot_wants_radio",
+        )
+
+        if st.session_state.plot_wants == "Yes":
+            try:
+                plotter = DataPlotter(df)
+
+                st.markdown("#### Full time range")
+                fig_full = plotter.plot_full()
+                fig_full = _format_datetime_xaxis(fig_full)  # <-- NEW
+                st.pyplot(fig_full, use_container_width=True)
+
+                total_weeks = plotter.total_weeks()
+                st.info(f"Total available weeks in this dataset: **{total_weeks}**")
+
+                st.markdown("#### Last week")
+                last_info = plotter.plot_last_week()
+                last_info["fig"] = _format_datetime_xaxis(last_info["fig"])  # <-- NEW
+                st.info(
+                    f"Plotting last week: **Week {last_info['week_index']} / {last_info.get('total_weeks', total_weeks)}** "
+                    f"({last_info['start']} → {last_info['end']})"
+                )
+                st.pyplot(last_info["fig"], use_container_width=True)
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("Plot another random week"):
+                        st.session_state.random_week_clicks += 1
+                        st.session_state.random_week_info = plotter.plot_random_week()
+                        st.rerun()
+
+                with c2:
+                    st.button("Continue to download")
+
+                if st.session_state.random_week_info is not None:
+                    info = st.session_state.random_week_info
+                    st.markdown("#### Random week")
+                    st.info(
+                        f"Randomly selected: **Week {info['week_index']} / {info.get('total_weeks', total_weeks)}** "
+                        f"({info['start']} → {info['end']})"
+                    )
+                    fig_rand = _format_datetime_xaxis(info["fig"])  # <-- NEW
+                    st.pyplot(fig_rand, use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Plotting failed: {e}")
+
+        st.write("---")
         st.info(
-            "This is your final table. To save it, please give your table a name.\n\n"
+            "Your final table is ready. To save it, please give your table a name.\n\n"
             "Example formats:\n"
             "- `ContractNumber_89578345`\n"
             "- `ContractId_8458_7384djfnjd_`"
@@ -560,7 +617,10 @@ if st.session_state.step == 1:
             st.session_state.saved_path = None
             st.session_state.pipeline_summary = None
 
-            # reset confirm gates
+            st.session_state.plot_wants = "No"
+            st.session_state.random_week_info = None
+            st.session_state.random_week_clicks = 0
+
             st.session_state.time_cols_confirmed = False
             st.session_state.time_selected_snapshot = []
 
@@ -578,9 +638,7 @@ if st.session_state.step == 1:
             st.session_state.date_col_snapshot = None
             st.session_state.time_col_snapshot = None
 
-            # clear any leftover temp upload path
             _cleanup_uploaded_temp_if_exists()
-
             st.rerun()
 
     with colB:
