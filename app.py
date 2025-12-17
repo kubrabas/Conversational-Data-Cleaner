@@ -37,6 +37,10 @@ def init_state():
         "saved_path": None,
         "pipeline_summary": None,  # still stored, but not shown
 
+        # --- NEW: keep temp file across reruns (needed for multi-sheet pick) ---
+        "uploaded_temp_path": None,
+        "uploaded_file_name": None,
+
         # --- UI confirm gates (no dropdowns + must confirm) ---
         "time_cols_confirmed": False,
         "time_selected_snapshot": [],
@@ -62,6 +66,17 @@ def init_state():
 
 def log(msg: str):
     st.session_state.log.append(msg)
+
+
+def _cleanup_uploaded_temp_if_exists():
+    temp_path = st.session_state.get("uploaded_temp_path")
+    if temp_path and os.path.exists(temp_path):
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+    st.session_state.uploaded_temp_path = None
+    st.session_state.uploaded_file_name = None
 
 
 # ==============================================================================
@@ -144,13 +159,22 @@ if st.session_state.step == 0:
 
     if uploaded_file:
         try:
-            suffix = os.path.splitext(uploaded_file.name)[-1].lower() or ".xlsx"
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(uploaded_file.getbuffer())
-                temp_path = tmp.name
+            # If a new file is uploaded (different name), reset previous temp
+            if st.session_state.uploaded_file_name != uploaded_file.name:
+                _cleanup_uploaded_temp_if_exists()
 
-            log(f"Uploaded file saved to temp: {temp_path}")
+            # Create temp file once and keep it across reruns (needed for multi-sheet selection)
+            if st.session_state.uploaded_temp_path is None:
+                suffix = os.path.splitext(uploaded_file.name)[-1].lower() or ".xlsx"
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(uploaded_file.getbuffer())
+                    st.session_state.uploaded_temp_path = tmp.name
+                st.session_state.uploaded_file_name = uploaded_file.name
+                log(f"Uploaded file saved to temp: {st.session_state.uploaded_temp_path}")
 
+            temp_path = st.session_state.uploaded_temp_path
+
+            # This may stop() internally if multi-sheet selection needs confirmation
             results = run_automatic_pipeline(temp_path)
 
             st.session_state.df_raw = results["df_raw"]
@@ -188,7 +212,8 @@ if st.session_state.step == 0:
             st.session_state.date_col_snapshot = None
             st.session_state.time_col_snapshot = None
 
-            os.remove(temp_path)
+            # Clean up temp file ONLY after the pipeline fully finishes
+            _cleanup_uploaded_temp_if_exists()
 
             st.session_state.step = 1
             st.rerun()
@@ -552,6 +577,9 @@ if st.session_state.step == 1:
             st.session_state.date_hour_confirmed = False
             st.session_state.date_col_snapshot = None
             st.session_state.time_col_snapshot = None
+
+            # clear any leftover temp upload path
+            _cleanup_uploaded_temp_if_exists()
 
             st.rerun()
 
